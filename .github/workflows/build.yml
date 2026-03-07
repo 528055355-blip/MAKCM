@@ -1,0 +1,119 @@
+name: Build MAKCM Firmware
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-left:
+    name: Build Left MCU (Device Mouse)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: |
+          pip install platformio
+          pip install colorama
+
+      - name: Build Left Firmware
+        run: |
+          cd MAKCM_ESP32s3_Device_Mouse_Left
+          pio run -e LEFT
+
+      - name: List build outputs
+        run: |
+          echo "=== Build directory ==="
+          ls -la MAKCM_ESP32s3_Device_Mouse_Left/.pio/build/LEFT/
+          echo "=== Merged firmware ==="
+          ls -la MAKCM_ESP32s3_Device_Mouse_Left/merged_firmware/ 2>/dev/null || echo "No merged firmware dir"
+
+      - name: Upload Left firmware.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Left-firmware-bin
+          path: MAKCM_ESP32s3_Device_Mouse_Left/.pio/build/LEFT/firmware.bin
+
+      - name: Upload Left bootloader.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Left-bootloader-bin
+          path: MAKCM_ESP32s3_Device_Mouse_Left/.pio/build/LEFT/bootloader.bin
+
+      - name: Upload Left partitions.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Left-partitions-bin
+          path: MAKCM_ESP32s3_Device_Mouse_Left/.pio/build/LEFT/partitions.bin
+
+      - name: Upload Left merged firmware
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Left-merged-firmware
+          path: MAKCM_ESP32s3_Device_Mouse_Left/merged_firmware/*.bin
+          if-no-files-found: ignore
+
+  build-right:
+    name: Build Right MCU (HID Mouse)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: |
+          pip install platformio
+          pip install colorama
+
+      - name: Build Right Firmware
+        run: |
+          cd MAKCM_ESP32s3_HID_Mouse_Right
+          pio run -e RIGHT
+
+      - name: List build outputs
+        run: |
+          echo "=== Build directory ==="
+          ls -la MAKCM_ESP32s3_HID_Mouse_Right/.pio/build/RIGHT/
+          echo "=== Merged firmware ==="
+          ls -la MAKCM_ESP32s3_HID_Mouse_Right/merged_firmware/ 2>/dev/null || echo "No merged firmware dir"
+
+      - name: Upload Right firmware.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Right-firmware-bin
+          path: MAKCM_ESP32s3_HID_Mouse_Right/.pio/build/RIGHT/firmware.bin
+
+      - name: Upload Right bootloader.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Right-bootloader-bin
+          path: MAKCM_ESP32s3_HID_Mouse_Right/.pio/build/RIGHT/bootloader.bin
+
+      - name: Upload Right partitions.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Right-partitions-bin
+          path: MAKCM_ESP32s3_HID_Mouse_Right/.pio/build/RIGHT/partitions.bin
+
+      - name: Upload Right merged firmware
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Right-merged-firmware
+          path: MAKCM_ESP32s3_HID_Mouse_Right/merged_firmware/*.bin
+          if-no-files-found: ignore
