@@ -7,16 +7,15 @@ TaskHandle_t serial1TaskHandle = NULL;
 TaskHandle_t serial0TaskHandle = NULL;
 TaskHandle_t mouseMoveTaskHandle = NULL;
 TaskHandle_t ledFlashTaskHandle = NULL;
-
-
+TaskHandle_t btnSubTaskHandle = NULL;
 
 void tasks() {
     BaseType_t xReturned;
 
-xReturned = xTaskCreate(serial1Task, "Serial1Task", 4096, NULL, 1, &serial1TaskHandle);
-if (xReturned != pdPASS) {
-    Serial0.println("Failed to create Serial1Task");
-}
+    xReturned = xTaskCreate(serial1Task, "Serial1Task", 4096, NULL, 1, &serial1TaskHandle);
+    if (xReturned != pdPASS) {
+        Serial0.println("Failed to create Serial1Task");
+    }
 
     xReturned = xTaskCreate(serial0Task, "Serial0Task", 2160, NULL, 2, &serial0TaskHandle);
     if (xReturned != pdPASS) {
@@ -31,6 +30,11 @@ if (xReturned != pdPASS) {
     xReturned = xTaskCreate(ledFlashTask, "LEDFlashTask", 1536, NULL, 1, &ledFlashTaskHandle);
     if (xReturned != pdPASS) {
         Serial0.println("Failed to create LEDFlashTask");
+    }
+
+    xReturned = xTaskCreate(btnSubscriptionTask, "BtnSubTask", 2048, NULL, 1, &btnSubTaskHandle);
+    if (xReturned != pdPASS) {
+        Serial0.println("Failed to create BtnSubTask");
     }
 }
 
@@ -59,4 +63,3 @@ void serial1Task(void *pvParameters) {
         serial1RX();
     }
 }
-

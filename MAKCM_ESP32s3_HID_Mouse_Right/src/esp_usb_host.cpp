@@ -1,4 +1,5 @@
 #include "EspUsbHost.h"
+#include "binary_protocol.h"
 #include <sstream>
 #include <iomanip>
 #include "freertos/semphr.h"
@@ -643,6 +644,11 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
         EspUsbHost::deviceConnected = false;
         deviceMouseReady = false;
 
+        // Notify left MCU that device is gone
+        uint8_t pkt[PKT_CTRL_LEN];
+        pkt_build_ctrl(pkt, PKT_USB_GOODBYE);
+        Serial1.write(pkt, PKT_CTRL_LEN);
+
         ESP_LOGI("EspUsbHost", "Notifying cleanup task...");
         xTaskNotifyGive(usbHost->cleanupTaskHandle); // Notify the cleanup task to start the process
 
@@ -804,81 +810,15 @@ void EspUsbHost::onMouse(hid_mouse_report_t report, uint8_t last_buttons)
 
 void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
 {
-    if (deviceMouseReady)
-    {
-        if (!(last_buttons & MOUSE_BUTTON_LEFT) && (report.buttons & MOUSE_BUTTON_LEFT))
-        {
-            serial1Send("km.left(1)\n");
-            ESP_LOGI("EspUsbHost", "Left mouse button pressed");
-        }
-        if ((last_buttons & MOUSE_BUTTON_LEFT) && !(report.buttons & MOUSE_BUTTON_LEFT))
-        {
-            serial1Send("km.left(0)\n");
-            ESP_LOGI("EspUsbHost", "Left mouse button released");
-        }
-
-        if (!(last_buttons & MOUSE_BUTTON_RIGHT) && (report.buttons & MOUSE_BUTTON_RIGHT))
-        {
-            serial1Send("km.right(1)\n");
-            ESP_LOGI("EspUsbHost", "Right mouse button pressed");
-        }
-        if ((last_buttons & MOUSE_BUTTON_RIGHT) && !(report.buttons & MOUSE_BUTTON_RIGHT))
-        {
-            serial1Send("km.right(0)\n");
-            ESP_LOGI("EspUsbHost", "Right mouse button released");
-        }
-
-        if (!(last_buttons & MOUSE_BUTTON_MIDDLE) && (report.buttons & MOUSE_BUTTON_MIDDLE))
-        {
-            serial1Send("km.middle(1)\n");
-            ESP_LOGI("EspUsbHost", "Middle mouse button pressed");
-        }
-        if ((last_buttons & MOUSE_BUTTON_MIDDLE) && !(report.buttons & MOUSE_BUTTON_MIDDLE))
-        {
-            serial1Send("km.middle(0)\n");
-            ESP_LOGI("EspUsbHost", "Middle mouse button released");
-        }
-
-        if (!(last_buttons & MOUSE_BUTTON_FORWARD) && (report.buttons & MOUSE_BUTTON_FORWARD))
-        {
-            serial1Send("km.side1(1)\n");
-            ESP_LOGI("EspUsbHost", "Forward mouse button pressed");
-        }
-        if ((last_buttons & MOUSE_BUTTON_FORWARD) && !(report.buttons & MOUSE_BUTTON_FORWARD))
-        {
-            serial1Send("km.side1(0)\n");
-            ESP_LOGI("EspUsbHost", "Forward mouse button released");
-        }
-
-        if (!(last_buttons & MOUSE_BUTTON_BACKWARD) && (report.buttons & MOUSE_BUTTON_BACKWARD))
-        {
-            serial1Send("km.side2(1)\n");
-            ESP_LOGI("EspUsbHost", "Backward mouse button pressed");
-        }
-        if ((last_buttons & MOUSE_BUTTON_BACKWARD) && !(report.buttons & MOUSE_BUTTON_BACKWARD))
-        {
-            serial1Send("km.side2(0)\n");
-            ESP_LOGI("EspUsbHost", "Backward mouse button released");
-        }
-    }
+    // Button data is now sent via binary packet in _onReceive
+    // This function is kept for logging/override purposes only
 }
 
 
 void EspUsbHost::onMouseMove(hid_mouse_report_t report)
 {
-    if (deviceMouseReady)
-    {
-        if (report.wheel != 0)
-        {
-            serial1Send("km.wheel(%d)\n", report.wheel);
-            ESP_LOGI("EspUsbHost", "Mouse wheel moved, value=%d", report.wheel);
-        }
-        else
-        {
-            serial1Send("km.move(%d,%d)\n", report.x, report.y);
-            ESP_LOGI("EspUsbHost", "Mouse moved, x=%d, y=%d", report.x, report.y);
-        }
-    }
+    // Movement data is now sent via binary packet in _onReceive
+    // This function is kept for logging/override purposes only
 }
 
 
@@ -954,14 +894,20 @@ void EspUsbHost::_onReceive(usb_transfer_t *transfer)
                 }
 
                 usbHost->onMouse(report, last_buttons);
+
+                // Send single binary packet with full mouse state
+                bool changed = (report.buttons != last_buttons) ||
+                               (report.x != 0 || report.y != 0 || report.wheel != 0);
+                if (changed && deviceMouseReady)
+                {
+                    uint8_t pkt[PKT_MOUSE_LEN];
+                    pkt_build_mouse(pkt, report.buttons, report.x, report.y, report.wheel);
+                    Serial1.write(pkt, PKT_MOUSE_LEN);
+                }
+
                 if (report.buttons != last_buttons)
                 {
-                    usbHost->onMouseButtons(report, last_buttons);
                     last_buttons = report.buttons;
-                }
-                if (report.x != 0 || report.y != 0 || report.wheel != 0)
-                {
-                    usbHost->onMouseMove(report);
                 }
             }
         }

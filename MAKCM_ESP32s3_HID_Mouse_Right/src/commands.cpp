@@ -1,4 +1,5 @@
 #include "EspUsbHost.h"
+#include "binary_protocol.h"
 #include "esp_log.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -15,7 +16,9 @@ void EspUsbHost::handleIncomingCommands(const String &command)
     {
         debugModeActive = true;
         serial1Send("Debug mode activated.\n");
-        serial1Send("USB_ISDEBUG\n");
+        uint8_t pkt[PKT_CTRL_LEN];
+        pkt_build_ctrl(pkt, PKT_USB_ISDEBUG);
+        Serial1.write(pkt, PKT_CTRL_LEN);
         ESP_LOGI("EspUsbHost", "Debug mode activated.");
     }
     else if (command == "DEBUG_OFF")
@@ -28,28 +31,34 @@ void EspUsbHost::handleIncomingCommands(const String &command)
         {
             debugModeActive = false;
             ESP_LOGI("EspUsbHost", "Debug mode deactivated. System will restart.");
-            Serial1.print("USB_GOODBYE\n");
+            uint8_t pkt[PKT_CTRL_LEN];
+            pkt_build_ctrl(pkt, PKT_USB_GOODBYE);
+            Serial1.write(pkt, PKT_CTRL_LEN);
             vTaskDelay(pdMS_TO_TICKS(100));
             esp_restart();
         }
     }
     else if (command == "READY")
     {
+        uint8_t pkt[PKT_CTRL_LEN];
         if (debugModeActive)
         {
-            serial1Send("USB_ISDEBUG\n");
-            ESP_LOGI("EspUsbHost", "Debug mode is active. Sent USB_ISDEBUG.");
+            pkt_build_ctrl(pkt, PKT_USB_ISDEBUG);
+            Serial1.write(pkt, PKT_CTRL_LEN);
+            ESP_LOGI("EspUsbHost", "Debug mode is active. Sent PKT_USB_ISDEBUG.");
         }
         else
         {
             if (EspUsbHost::deviceConnected)
             {
-                serial1Send("USB_HELLO\n");
+                pkt_build_ctrl(pkt, PKT_USB_HELLO);
+                Serial1.write(pkt, PKT_CTRL_LEN);
                 ESP_LOGI("EspUsbHost", "Device is connected.");
             }
             else
             {
-                serial1Send("USB_ISNULL\n");
+                pkt_build_ctrl(pkt, PKT_USB_ISNULL);
+                Serial1.write(pkt, PKT_CTRL_LEN);
                 ESP_LOGW("EspUsbHost", "No device is connected.");
             }
         }

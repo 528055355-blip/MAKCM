@@ -10,17 +10,19 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// Declare task handles using extern to avoid redefinition errors
+// Declare task handles
 extern TaskHandle_t serial1TaskHandle;
 extern TaskHandle_t serial0TaskHandle;
 extern TaskHandle_t mouseMoveTaskHandle;
 extern TaskHandle_t ledFlashTaskHandle;
+extern TaskHandle_t btnSubTaskHandle;
 
 // Function prototypes for tasks and ISRs
 void serial0Task(void *pvParameters);
 void serial1Task(void *pvParameters);
 void mouseMoveTask(void *pvParameters);
 void ledFlashTask(void *pvParameters);
+void btnSubscriptionTask(void *parameter);
 
 // ISR declarations
 void IRAM_ATTR serial0ISR();
