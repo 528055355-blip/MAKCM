@@ -145,4 +145,16 @@ void receiveIADescriptors(const char *jsonString);
 void receiveEndpointData(const char *jsonString);
 void receiveUnknownDescriptors(const char *jsonString);
 
+// ============================================================
+// 阶段2新增：克隆的 HID Report Descriptor 结构
+// ============================================================
+#define MAX_HID_REPORT_DESC_SIZE 512
 
+struct ClonedHIDReportDescriptor {
+    uint8_t data[MAX_HID_REPORT_DESC_SIZE];
+    uint16_t length;
+    bool ready;
+    uint8_t checksum;
+};
+
+extern ClonedHIDReportDescriptor clonedDescriptor;

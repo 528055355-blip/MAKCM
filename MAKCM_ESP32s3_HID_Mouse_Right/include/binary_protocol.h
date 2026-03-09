@@ -6,19 +6,21 @@
 // ============================================================
 // Binary Protocol for Right MCU → Left MCU (UART1, 5Mbps)
 // ============================================================
-// Mouse data is sent as compact binary packets.
-// Descriptor exchange remains text/JSON (one-time, not perf critical).
+// Mouse data and HID descriptors are sent as compact binary packets.
 // ============================================================
 
 // Sync byte - marks start of binary packet
 #define PKT_SYNC 0xAA
 
 // --- Packet types (Right → Left) ---
-#define PKT_MOUSE_DATA    0x01  // Full mouse state: buttons + x + y + wheel
-#define PKT_USB_HELLO     0x02  // USB device connected
-#define PKT_USB_GOODBYE   0x03  // USB device disconnected
-#define PKT_USB_ISNULL    0x04  // No device present
-#define PKT_USB_ISDEBUG   0x05  // Debug mode active on right MCU
+#define PKT_MOUSE_DATA      0x01  // Full mouse state: buttons + x + y + wheel
+#define PKT_USB_HELLO       0x02  // USB device connected
+#define PKT_USB_GOODBYE     0x03  // USB device disconnected
+#define PKT_USB_ISNULL      0x04  // No device present
+#define PKT_USB_ISDEBUG     0x05  // Debug mode active on right MCU
+#define PKT_HID_REPORT_DESC 0x10  // HID Report Descriptor data packet (阶段2新增)
+#define PKT_ACK             0x11  // Acknowledgment packet (阶段2新增)
+#define PKT_NACK            0x12  // Negative acknowledgment packet (阶段2新增)
 
 // --- Mouse data packet (9 bytes total) ---
 // [SYNC] [TYPE] [BUTTONS] [X_LO] [X_HI] [Y_LO] [Y_HI] [WHEEL] [CHK]
@@ -29,6 +31,12 @@
 // [SYNC] [TYPE] [CHK]
 //  0xAA   type   XOR
 #define PKT_CTRL_LEN 3
+
+// --- HID Report Descriptor packet (variable length) ---
+// [SYNC] [TYPE] [LEN_LO] [LEN_HI] [DATA...] [CHK]
+//  0xAA   0x10   uint16_t          N bytes    XOR
+// Maximum HID Report Descriptor size
+#define MAX_HID_REPORT_DESC_SIZE 512
 
 // Button bit masks (matches USB HID / TinyUSB button bits)
 #define BTN_LEFT     0x01
@@ -82,6 +90,82 @@ static inline bool pkt_parse_ctrl(const uint8_t* buf, uint8_t* type) {
     if (buf[0] != PKT_SYNC) return false;
     if (buf[1] != buf[2]) return false; // checksum
     *type = buf[1];
+    return true;
+}
+
+// ============================================================
+// 阶段2新增：HID Report Descriptor 数据包函数
+// ============================================================
+
+// Build HID Report Descriptor packet. Returns total packet length.
+// Packet format: [SYNC][TYPE][LEN_LO][LEN_HI][DATA...][CHK]
+// Checksum covers TYPE, LEN_LO, LEN_HI, and all DATA bytes
+static inline uint16_t pkt_build_hid_descriptor(
+    uint8_t* buf, 
+    const uint8_t* descriptor, 
+    uint16_t length
+) {
+    if (length > MAX_HID_REPORT_DESC_SIZE || length == 0) {
+        return 0;  // Invalid length
+    }
+    
+    buf[0] = PKT_SYNC;
+    buf[1] = PKT_HID_REPORT_DESC;
+    buf[2] = length & 0xFF;          // Length low byte
+    buf[3] = (length >> 8) & 0xFF;   // Length high byte
+    
+    // Copy descriptor data
+    for (uint16_t i = 0; i < length; i++) {
+        buf[4 + i] = descriptor[i];
+    }
+    
+    // Calculate checksum (TYPE + LEN_LO + LEN_HI + all DATA bytes)
+    uint8_t checksum = 0;
+    for (uint16_t i = 1; i < 4 + length; i++) {
+        checksum ^= buf[i];
+    }
+    buf[4 + length] = checksum;
+    
+    return 5 + length;  // SYNC + TYPE + LEN(2) + DATA + CHK
+}
+
+// Parse HID Report Descriptor packet. Returns true if valid.
+// Extracts descriptor data and length from packet.
+static inline bool pkt_parse_hid_descriptor(
+    const uint8_t* buf,
+    uint8_t* descriptor,
+    uint16_t* length
+) {
+    // Verify sync byte and type
+    if (buf[0] != PKT_SYNC || buf[1] != PKT_HID_REPORT_DESC) {
+        return false;
+    }
+    
+    // Extract length
+    *length = buf[2] | (buf[3] << 8);
+    
+    // Validate length
+    if (*length == 0 || *length > MAX_HID_REPORT_DESC_SIZE) {
+        return false;
+    }
+    
+    // Calculate checksum
+    uint8_t calculatedChecksum = 0;
+    for (uint16_t i = 1; i < 4 + *length; i++) {
+        calculatedChecksum ^= buf[i];
+    }
+    
+    uint8_t receivedChecksum = buf[4 + *length];
+    
+    if (calculatedChecksum != receivedChecksum) {
+        return false;  // Checksum mismatch
+    }
+    
+    // Copy descriptor data
+    for (uint16_t i = 0; i < *length; i++) {
+        descriptor[i] = buf[4 + i];
+    }
+    
     return true;
 }
 

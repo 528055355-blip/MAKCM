@@ -400,36 +400,107 @@ void serial1RX() {
             // Binary packet mode
             if (Serial1.available() < 2) return; // Need at least sync + type
 
+            // Peek at type byte without consuming
             uint8_t header[2];
+            // Read first 2 bytes
             Serial1.readBytes(header, 2);
             uint8_t pktType = header[1];
 
-            int remaining;
             if (pktType == PKT_MOUSE_DATA) {
-                remaining = PKT_MOUSE_LEN - 2; // 7 more bytes
-            } else {
-                remaining = PKT_CTRL_LEN - 2;  // 1 more byte
-            }
-
-            // Brief wait for remaining bytes (at 5Mbps, ~2μs per byte)
-            unsigned long t0 = micros();
-            while (Serial1.available() < remaining && (micros() - t0) < 200) {
-                // Spin wait, max 200μs
-            }
-
-            if (Serial1.available() >= remaining) {
-                uint8_t pkt[PKT_MOUSE_LEN]; // Use larger buffer
-                pkt[0] = header[0];
-                pkt[1] = header[1];
-                Serial1.readBytes(pkt + 2, remaining);
-
-                if (pktType == PKT_MOUSE_DATA) {
+                // Mouse data: 9 bytes total, already read 2, need 7 more
+                int remaining = PKT_MOUSE_LEN - 2;
+                unsigned long t0 = micros();
+                while (Serial1.available() < remaining && (micros() - t0) < 500) {
+                    // Spin wait, max 500μs at 5Mbps
+                }
+                if (Serial1.available() >= remaining) {
+                    uint8_t pkt[PKT_MOUSE_LEN];
+                    pkt[0] = header[0];
+                    pkt[1] = header[1];
+                    Serial1.readBytes(pkt + 2, remaining);
                     handleBinaryMousePacket(pkt);
-                } else {
+                }
+
+            } else if (pktType == PKT_HID_REPORT_DESC) {
+                // HID descriptor: variable length packet
+                // Header format: [SYNC][TYPE][LEN_LO][LEN_HI]
+                // Need 2 more bytes for length
+                unsigned long t0 = micros();
+                while (Serial1.available() < 2 && (micros() - t0) < 2000) {
+                    // Wait for 2 length bytes
+                }
+                if (Serial1.available() < 2) return; // Timeout
+
+                uint8_t lenBytes[2];
+                Serial1.readBytes(lenBytes, 2);
+                uint16_t descLen = lenBytes[0] | (lenBytes[1] << 8);
+
+                if (descLen == 0 || descLen > MAX_HID_REPORT_DESC_SIZE) {
+                    ESP_LOGE("serial1RX", "Invalid HID desc length: %d", descLen);
+                    // Send NACK
+                    uint8_t nack[PKT_CTRL_LEN];
+                    pkt_build_ctrl(nack, PKT_NACK);
+                    Serial1.write(nack, PKT_CTRL_LEN);
+                    return;
+                }
+
+                // Wait for all descriptor bytes + checksum
+                uint32_t waitStart = millis();
+                while (Serial1.available() < (int)(descLen + 1) && (millis() - waitStart) < 300) {
+                    vTaskDelay(1);
+                }
+                if (Serial1.available() < (int)(descLen + 1)) {
+                    ESP_LOGE("serial1RX", "HID desc timeout, got %d need %d", Serial1.available(), descLen + 1);
+                    uint8_t nack[PKT_CTRL_LEN];
+                    pkt_build_ctrl(nack, PKT_NACK);
+                    Serial1.write(nack, PKT_CTRL_LEN);
+                    return;
+                }
+
+                // Read data and checksum
+                Serial1.readBytes(clonedDescriptor.data, descLen);
+                uint8_t rxChecksum = Serial1.read();
+
+                // Verify checksum (covers: TYPE + LEN_LO + LEN_HI + all DATA)
+                uint8_t calcChecksum = header[1] ^ lenBytes[0] ^ lenBytes[1];
+                for (int i = 0; i < descLen; i++) {
+                    calcChecksum ^= clonedDescriptor.data[i];
+                }
+
+                if (calcChecksum != rxChecksum) {
+                    ESP_LOGE("serial1RX", "HID desc checksum fail: calc=0x%02X got=0x%02X", calcChecksum, rxChecksum);
+                    uint8_t nack[PKT_CTRL_LEN];
+                    pkt_build_ctrl(nack, PKT_NACK);
+                    Serial1.write(nack, PKT_CTRL_LEN);
+                    clonedDescriptor.ready = false;
+                    return;
+                }
+
+                clonedDescriptor.length = descLen;
+                clonedDescriptor.checksum = rxChecksum;
+                clonedDescriptor.ready = true;
+                ESP_LOGI("serial1RX", "HID Report Descriptor received OK, len=%d", descLen);
+
+                // Send ACK
+                uint8_t ack[PKT_CTRL_LEN];
+                pkt_build_ctrl(ack, PKT_ACK);
+                Serial1.write(ack, PKT_CTRL_LEN);
+
+            } else {
+                // Control packet: 3 bytes total, already read 2, need 1 more
+                int remaining = PKT_CTRL_LEN - 2;
+                unsigned long t0 = micros();
+                while (Serial1.available() < remaining && (micros() - t0) < 500) {
+                    // Spin wait
+                }
+                if (Serial1.available() >= remaining) {
+                    uint8_t pkt[PKT_CTRL_LEN];
+                    pkt[0] = header[0];
+                    pkt[1] = header[1];
+                    Serial1.readBytes(pkt + 2, remaining);
                     handleBinaryControlPacket(pkt);
                 }
             }
-            // else: timeout, bytes lost
         } else {
             // Text mode - read into ring buffer until newline
             char ch = Serial1.read();

@@ -35,7 +35,14 @@ void setup() {
     Serial1.onReceive(serial1ISR);
     Serial0.onReceive(serial0ISR);
     burn_usb_phy_sel_efuse();
+
+    // 启动所有任务（包括 serial1Task 用于接收 HID 描述符）
     tasks();
+
+    // HID 描述符将在 serial1Task 运行时由 serial1RX() 异步接收
+    // TinyUSB 的 tud_hid_descriptor_report_cb 会在描述符就绪后使用克隆版本
+    // 如果描述符尚未到达则使用默认描述符，等待鼠标重新连接即可自动更新
+    ESP_LOGI("main", "Tasks started, HID descriptor will be received asynchronously");
 }
 
 void loop() {

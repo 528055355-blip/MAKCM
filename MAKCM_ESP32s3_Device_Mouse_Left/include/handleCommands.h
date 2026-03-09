@@ -7,8 +7,12 @@
 #include <USBHIDMouse.h>
 #include "USBSetup.h"
 #include <esp_intr_alloc.h>
+#include <esp_log.h>
 #include <cstring>
 #include <atomic>
+
+// Cloned HID descriptor (from USBSetup.cpp)
+extern ClonedHIDReportDescriptor clonedDescriptor;
 
 // Extern variables
 extern USBHIDMouse Mouse;

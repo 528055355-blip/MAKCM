@@ -119,8 +119,32 @@ void EspUsbHost::receiveSerial1(void *arg)
 {
     EspUsbHost *instance = static_cast<EspUsbHost *>(arg);
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1));                                                              // Set 1ms, be lazy be happy
-        handleSerialInput(Serial1, instance);
+        vTaskDelay(pdMS_TO_TICKS(1));
+        // Drain incoming bytes from left MCU
+        // Left MCU sends text commands (READY, sendDeviceInfo, etc.)
+        // and may send binary ACK/NACK for HID descriptor
+        while (Serial1.available() > 0) {
+            int peeked = Serial1.peek();
+            if (peeked == PKT_SYNC) {
+                // Binary packet from left MCU (ACK or NACK)
+                if (Serial1.available() >= PKT_CTRL_LEN) {
+                    uint8_t pkt[PKT_CTRL_LEN];
+                    Serial1.readBytes(pkt, PKT_CTRL_LEN);
+                    if (pkt[1] == PKT_ACK) {
+                        ESP_LOGI("EspUsbHost", "Received ACK from left MCU");
+                    } else if (pkt[1] == PKT_NACK) {
+                        ESP_LOGW("EspUsbHost", "Received NACK from left MCU");
+                    }
+                    // else: unknown binary packet, discard
+                } else {
+                    break; // Wait for more bytes
+                }
+            } else {
+                // Text command
+                handleSerialInput(Serial1, instance);
+                break;
+            }
+        }
     }
 }
 

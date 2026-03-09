@@ -268,8 +268,18 @@ public:
 
     // USB fix
 
+    // ============================================================
+    // 阶段2新增：HID Report Descriptor 存储和传输
+    // ============================================================
+    struct HIDReportDescriptorData {
+        uint8_t data[512];      // MAX_HID_REPORT_DESC_SIZE = 512
+        uint16_t length;
+        bool isValid;
+        uint8_t checksum;
+    } hidReportDescriptor;
 
+    bool extractAndTransmitHIDDescriptor(usb_transfer_t* transfer);
+    bool transmitHIDReportDescriptor();
 };
-
 
 #endif

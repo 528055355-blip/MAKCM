@@ -751,15 +751,24 @@ void EspUsbHost::_onReceiveControl(usb_transfer_t *transfer)
         return;
     }
 
-     usbHost->logRawBytes("EspUsbHost::_onReceiveControl", transfer->data_buffer, transfer->actual_num_bytes);
+    usbHost->logRawBytes("EspUsbHost::_onReceiveControl", transfer->data_buffer, transfer->actual_num_bytes);
 
+    // ============================================================
+    // 阶段2修改：提取并传输 HID Report Descriptor
+    // ============================================================
+    bool success = usbHost->extractAndTransmitHIDDescriptor(transfer);
+    
+    if (success) {
+        ESP_LOGI("EspUsbHost", "HID descriptor cloning initiated successfully");
+    } else {
+        ESP_LOGW("EspUsbHost", "HID descriptor cloning failed or skipped");
+    }
+
+    // 继续原有的解析逻辑（用于内部使用）
     bool isMouse = false;
-    uint8_t *p = &transfer->data_buffer[8];  // Skip the first 8 bytes for processing
+    uint8_t *p = &transfer->data_buffer[8];
     int totalBytes = transfer->actual_num_bytes;
 
-    ESP_LOGI("EspUsbHost", "onReceiveControl called with %d bytes", totalBytes);
-
-    // Check if it's a mouse
     for (int i = 0; i < totalBytes - 3; i++)
     {
         if (p[i] == 0x05 && p[i + 1] == 0x01 && p[i + 2] == 0x09 && p[i + 3] == 0x02)
@@ -769,16 +778,11 @@ void EspUsbHost::_onReceiveControl(usb_transfer_t *transfer)
         }
     }
 
-    if (!isMouse)
+    if (isMouse)
     {
-        ESP_LOGI("EspUsbHost", "Device is not a mouse, skipping further processing");
-        usb_host_transfer_free(transfer);
-        return;
+        ESP_LOGI("EspUsbHost", "Mouse device detected, parsing HID report descriptor");
+        HIDReportDescriptor descriptor = usbHost->parseHIDReportDescriptor(&transfer->data_buffer[8], transfer->actual_num_bytes - 8);
     }
-
-    ESP_LOGI("EspUsbHost", "Mouse device detected, parsing HID report descriptor");
-
-    HIDReportDescriptor descriptor = usbHost->parseHIDReportDescriptor(&transfer->data_buffer[8], transfer->actual_num_bytes - 8);
 
     usb_host_transfer_free(transfer);
 }
@@ -848,7 +852,9 @@ void EspUsbHost::_onReceive(usb_transfer_t *transfer)
         usbHost->last_activity_time = millis();
         if (EspUsbHost::deviceConnected && usbHost->deviceSuspended)
         {
-            usbHost->resume_device();
+            // Don't call resume_device() directly from USB callback (interrupt context)
+            // Instead, clear the suspended flag and let monitorInactivity handle it
+            usbHost->deviceSuspended = false;
         }
         flashLED();
     }
@@ -1186,4 +1192,108 @@ EspUsbHost::HIDReportDescriptor EspUsbHost::parseHIDReportDescriptor(uint8_t *da
     ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "wheelStartByte: %d", HIDReportDesc.wheelStartByte);
 
     return HIDReportDesc;
+}
+
+// ============================================================
+// 阶段2新增：HID Report Descriptor 提取方法
+// ============================================================
+bool EspUsbHost::extractAndTransmitHIDDescriptor(usb_transfer_t* transfer)
+{
+    if (transfer->status != USB_TRANSFER_STATUS_COMPLETED) {
+        ESP_LOGE("EspUsbHost", "Control transfer failed with status=%X", transfer->status);
+        return false;
+    }
+
+    // 步骤 1: 提取原始数据（跳过前 8 字节的 SETUP 包头）
+    uint8_t* rawData = &transfer->data_buffer[8];
+    uint16_t length = transfer->actual_num_bytes - 8;
+
+    // 步骤 2: 验证长度
+    if (length <= 0 || length > 512) {  // MAX_HID_REPORT_DESC_SIZE
+        ESP_LOGE("EspUsbHost", "Invalid descriptor length: %d", length);
+        return false;
+    }
+
+    // 步骤 3: 验证鼠标特征（查找 Usage Page(Generic Desktop) + Usage(Mouse)）
+    bool isMouse = false;
+    for (int i = 0; i < length - 3; i++) {
+        if (rawData[i] == 0x05 && rawData[i+1] == 0x01 &&
+            rawData[i+2] == 0x09 && rawData[i+3] == 0x02) {
+            isMouse = true;
+            break;
+        }
+    }
+
+    if (!isMouse) {
+        ESP_LOGI("EspUsbHost", "Device is not a mouse, skipping clone");
+        return false;
+    }
+
+    // 步骤 4: 存储描述符
+    hidReportDescriptor.length = length;
+    memcpy(hidReportDescriptor.data, rawData, length);
+
+    // 步骤 5: 计算校验和
+    hidReportDescriptor.checksum = 0;
+    for (int i = 0; i < length; i++) {
+        hidReportDescriptor.checksum ^= hidReportDescriptor.data[i];
+    }
+
+    hidReportDescriptor.isValid = true;
+
+    ESP_LOGI("EspUsbHost", "HID Report Descriptor extracted, length: %d, checksum: 0x%02X", 
+             length, hidReportDescriptor.checksum);
+
+    // 步骤 6: 通过 UART 传输
+    bool success = transmitHIDReportDescriptor();
+
+    if (success) {
+        ESP_LOGI("EspUsbHost", "HID Report Descriptor transmitted successfully");
+    } else {
+        ESP_LOGE("EspUsbHost", "HID Report Descriptor transmission failed");
+    }
+
+    return success;
+}
+
+// ============================================================
+// 阶段2：HID Report Descriptor UART 传输（非阻塞，直接发送）
+// 不等待ACK——左侧MCU的serial1RX任务会异步处理ACK/NACK
+// 注意：此函数在USB中断回调中调用，不能使用delay()
+// ============================================================
+bool EspUsbHost::transmitHIDReportDescriptor()
+{
+    if (!hidReportDescriptor.isValid) {
+        ESP_LOGE("EspUsbHost", "Descriptor not valid, cannot transmit");
+        return false;
+    }
+
+    // 构建数据包（栈上分配，避免堆碎片）
+    uint16_t totalLength = 5 + hidReportDescriptor.length;
+    if (totalLength > MAX_HID_REPORT_DESC_SIZE + 5) {
+        ESP_LOGE("EspUsbHost", "Descriptor too large: %d", hidReportDescriptor.length);
+        return false;
+    }
+
+    uint8_t packet[MAX_HID_REPORT_DESC_SIZE + 5];
+    uint16_t len = pkt_build_hid_descriptor(
+        packet,
+        hidReportDescriptor.data,
+        hidReportDescriptor.length
+    );
+
+    if (len == 0) {
+        ESP_LOGE("EspUsbHost", "Failed to build HID descriptor packet");
+        return false;
+    }
+
+    // 直接发送，不等待ACK（非阻塞）
+    size_t bytesWritten = Serial1.write(packet, len);
+    if (bytesWritten != len) {
+        ESP_LOGE("EspUsbHost", "UART write failed: expected %d, actual %d", len, bytesWritten);
+        return false;
+    }
+
+    ESP_LOGI("EspUsbHost", "HID descriptor sent (%d bytes), no ACK wait", len);
+    return true;
 }
