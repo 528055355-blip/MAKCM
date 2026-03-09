@@ -1,11 +1,9 @@
-#include "handleCommands.h"
+#include "handleCommands.h"   // 已包含 ClonedHIDMouse.h、USBSetup.h 等
 #include "InitSettings.h"
 #include "binary_protocol.h"
 #include "tasks.h"
 #include <Arduino.h>
 #include <USB.h>
-#include <USBHIDMouse.h>
-#include "USBSetup.h"
 #include <esp_intr_alloc.h>
 #include <cstring>
 #include <atomic>
@@ -191,15 +189,25 @@ void handleNoDevice() {
 }
 
 void sendNextCommand() {
-    if (!processingUsbCommands || currentCommandIndex >= sizeof(commandQueue) / sizeof(commandQueue[0])) {
+    if (!processingUsbCommands || currentCommandIndex >= (int)(sizeof(commandQueue) / sizeof(commandQueue[0]))) {
         return;
     }
     const char *command = commandQueue[currentCommandIndex];
     Serial1.println(command);
     currentCommandIndex++;
-    if (currentCommandIndex >= sizeof(commandQueue) / sizeof(commandQueue[0])) {
+    if (currentCommandIndex >= (int)(sizeof(commandQueue) / sizeof(commandQueue[0]))) {
         usbReady = false;
         processingUsbCommands = false;
+
+        // 描述符交换完成，此时 clonedDescriptor 应已就绪
+        // （HID描述符包在枚举阶段发送，早于 PKT_USB_HELLO）
+        if (clonedDescriptor.ready) {
+            Serial0.print("HID desc cloned, len=");
+            Serial0.println(clonedDescriptor.length);
+        } else {
+            Serial0.println("WARN: HID desc not ready, using default");
+        }
+
         InitUSB();
         vTaskDelay(700);
         serial0Locked = false;

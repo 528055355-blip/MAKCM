@@ -51,6 +51,13 @@ void EspUsbHost::handleIncomingCommands(const String &command)
         {
             if (EspUsbHost::deviceConnected)
             {
+                // 阶段2：在发 HELLO 之前，先（重）发一次 HID 描述符包
+                // 保证左侧 clonedDescriptor 在 JSON 交换期间就绪，
+                // 避免 USB transfer 异步完成导致的竞态
+                if (hidReportDescriptor.isValid) {
+                    transmitHIDReportDescriptor();
+                    ESP_LOGI("EspUsbHost", "HID descriptor re-sent before HELLO");
+                }
                 pkt_build_ctrl(pkt, PKT_USB_HELLO);
                 Serial1.write(pkt, PKT_CTRL_LEN);
                 ESP_LOGI("EspUsbHost", "Device is connected.");

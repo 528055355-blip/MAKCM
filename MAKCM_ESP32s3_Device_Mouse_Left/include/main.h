@@ -3,8 +3,7 @@
 
 #include <Arduino.h>
 #include <USB.h>
-#include <USBHIDMouse.h>
-#include "handleCommands.h"
+#include "handleCommands.h"   // 已通过 ClonedHIDMouse.h 间接包含 USBHIDMouse.h
 #include "InitSettings.h"
 #include "USBSetup.h"
 #include <freertos/FreeRTOS.h>

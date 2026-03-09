@@ -2,20 +2,20 @@
 
 #include "InitSettings.h"
 #include "binary_protocol.h"
+#include "ClonedHIDMouse.h"   // 包含 USBHIDMouse.h 和 ClonedHIDMouse 定义
 #include <Arduino.h>
 #include <USB.h>
-#include <USBHIDMouse.h>
 #include "USBSetup.h"
 #include <esp_intr_alloc.h>
 #include <esp_log.h>
 #include <cstring>
 #include <atomic>
 
-// Cloned HID descriptor (from USBSetup.cpp)
-extern ClonedHIDReportDescriptor clonedDescriptor;
-
-// Extern variables
-extern USBHIDMouse Mouse;
+// ============================================================
+// 外部变量
+// ============================================================
+extern ClonedHIDReportDescriptor clonedDescriptor;  // 定义在 USBSetup.cpp
+extern ClonedHIDMouse Mouse;                         // 定义在 USBSetup.cpp
 extern TaskHandle_t mouseMoveTaskHandle;
 extern TaskHandle_t ledFlashTaskHandle;
 extern TaskHandle_t btnSubTaskHandle;
@@ -23,36 +23,37 @@ extern const char *commandQueue[];
 extern int currentCommandIndex;
 extern bool usbReady;
 
-// Mouse position tracking
 extern int16_t mouseX;
 extern int16_t mouseY;
 
-// Buffer lengths
+// ============================================================
+// 常量
+// ============================================================
 #define MAX_SERIAL0_COMMAND_LENGTH 100
 #define MAX_SERIAL1_COMMAND_LENGTH 620
 
-// Atomic flags for button states (from real mouse)
+// ============================================================
+// 原子变量（定义在 handleCommands.cpp）
+// ============================================================
 extern std::atomic<uint8_t> realMouseButtons;
+extern std::atomic<bool>    isLeftButtonPressed;
+extern std::atomic<bool>    isRightButtonPressed;
+extern std::atomic<bool>    isMiddleButtonPressed;
+extern std::atomic<bool>    isForwardButtonPressed;
+extern std::atomic<bool>    isBackwardButtonPressed;
+extern std::atomic<bool>    serial0Locked;
+extern std::atomic<int>     btnSubIntervalMs;
+extern std::atomic<bool>    kmMoveCom;
 
-// Atomic flags for injected button states (from serial0)
-extern std::atomic<bool> isLeftButtonPressed;
-extern std::atomic<bool> isRightButtonPressed;
-extern std::atomic<bool> isMiddleButtonPressed;
-extern std::atomic<bool> isForwardButtonPressed;
-extern std::atomic<bool> isBackwardButtonPressed;
-extern std::atomic<bool> serial0Locked;
+// ============================================================
+// 函数声明
+// ============================================================
 
-// Button subscription
-extern std::atomic<int> btnSubIntervalMs;  // 0 = disabled
-
-// Mutex for inject move
-extern std::atomic<bool> kmMoveCom;
-
-// Function declarations - binary packet handlers
+// 二进制包处理
 void handleBinaryMousePacket(const uint8_t* pkt);
 void handleBinaryControlPacket(const uint8_t* pkt);
 
-// Function declarations - mouse control
+// 鼠标控制
 void handleMove(int x, int y);
 void handleMoveto(int x, int y);
 void handleMouseButton(uint8_t button, bool press);
@@ -60,34 +61,32 @@ void handleMouseWheel(int wheelMovement);
 void handleGetPos();
 void handleGetButtons();
 
-// Function declarations - serial handlers
+// 串口 RX 处理
 void serial1RX();
 void serial0RX();
 void notifyLedFlashTask();
 
-// Function declarations - USB
+// USB 生命周期
 void handleUsbHello();
 void handleUsbGoodbye();
 void handleNoDevice();
 void sendNextCommand();
 
-// Function declarations - tasks
+// RTOS 任务
 void mouseMoveTask(void *pvParameters);
 void ledFlashTask(void *parameter);
 void btnSubscriptionTask(void *parameter);
 
-// Function declarations - serial0 command processing
+// 命令处理
 void processSerial0Command(const char *command);
-
-// Function declarations - serial1 text command processing (descriptor exchange)
 void processSerial1TextCommand(const char *command);
 
-// Debug
+// 调试/配置
 void handleDebug(const char *command);
 void handleSerial0Speed(const char *command);
 void handleEspLog(const char *command);
 
-// Extern functions for JSON data handling (in InitSettings.cpp)
+// JSON 描述符接收函数（定义在 InitSettings.cpp）
 extern void receiveDeviceInfo(const char *jsonString);
 extern void receiveDescriptorDevice(const char *jsonString);
 extern void receiveEndpointDescriptors(const char *jsonString);
@@ -98,7 +97,7 @@ extern void receiveEndpointData(const char *jsonString);
 extern void receiveUnknownDescriptors(const char *jsonString);
 extern void receivedescriptorConfiguration(const char *jsonString);
 
-// Command table structure
+// 命令表结构体
 struct CommandEntry {
     const char *command;
     void (*handler)(const char *);

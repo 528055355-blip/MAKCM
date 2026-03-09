@@ -2,12 +2,15 @@
 
 #include <Arduino.h>
 #include <USB.h>
-#include <USBHIDMouse.h>
+#include "ClonedHIDMouse.h"   // 包含 USBHIDMouse + ClonedHIDMouse 定义
 #include "InitSettings.h"
 
+// ============================================================
+// 全局鼠标对象（ClonedHIDMouse，支持描述符克隆）
+// ============================================================
+extern ClonedHIDMouse Mouse;
 
-extern USBHIDMouse Mouse;
-
+// 所有描述符相关外部变量（定义在 InitSettings.cpp）
 extern DeviceInfo device_info;
 extern DescriptorDevice descriptor_device;
 extern usb_endpoint_descriptor_t endpoint_descriptors[MAX_ENDPOINT_DESCRIPTORS];
@@ -22,11 +25,10 @@ extern usb_unknown_descriptor_t unknown_descriptors[MAX_UNKNOWN_DESCRIPTORS];
 extern uint8_t unknownDescriptorCounter;
 extern DescriptorConfiguration configuration_descriptor;
 
-
+// ============================================================
+// 函数声明
+// ============================================================
 void requestUSBDescriptors();
 void InitUSB();
-
-// 阶段2：HID Report Descriptor 接收和处理函数
-bool receiveHIDReportDescriptor();
+// processSerialData 已废弃（逻辑移至 serial1RX），保留声明兼容
 void processSerialData();
-void applyClonedDescriptorIfReady();
