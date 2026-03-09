@@ -33,37 +33,6 @@ ClonedHIDReportDescriptor clonedDescriptor = {
     .checksum = 0
 };
 
-// 默认 HID Report Descriptor（降级策略）
-static const uint8_t defaultHIDReportDescriptor[] = {
-    0x05, 0x01,        // Usage Page (Generic Desktop)
-    0x09, 0x02,        // Usage (Mouse)
-    0xA1, 0x01,        // Collection (Application)
-    0x09, 0x01,        //   Usage (Pointer)
-    0xA1, 0x00,        //   Collection (Physical)
-    0x05, 0x09,        //     Usage Page (Button)
-    0x19, 0x01,        //     Usage Minimum (1)
-    0x29, 0x05,        //     Usage Maximum (5)
-    0x15, 0x00,        //     Logical Minimum (0)
-    0x25, 0x01,        //     Logical Maximum (1)
-    0x95, 0x05,        //     Report Count (5)
-    0x75, 0x01,        //     Report Size (1)
-    0x81, 0x02,        //     Input (Data, Variable, Absolute)
-    0x95, 0x01,        //     Report Count (1)
-    0x75, 0x03,        //     Report Size (3)
-    0x81, 0x01,        //     Input (Constant) - Padding
-    0x05, 0x01,        //     Usage Page (Generic Desktop)
-    0x09, 0x30,        //     Usage (X)
-    0x09, 0x31,        //     Usage (Y)
-    0x09, 0x38,        //     Usage (Wheel)
-    0x15, 0x81,        //     Logical Minimum (-127)
-    0x25, 0x7F,        //     Logical Maximum (127)
-    0x75, 0x08,        //     Report Size (8)
-    0x95, 0x03,        //     Report Count (3)
-    0x81, 0x06,        //     Input (Data, Variable, Relative)
-    0xC0,              //   End Collection
-    0xC0               // End Collection
-};
-
 uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     static uint16_t desc[32];
     const char* str;
@@ -233,33 +202,28 @@ void processSerialData()
 }
 
 // ============================================================
-// 阶段2新增：TinyUSB 回调函数实现
+// 阶段2：HID Report Descriptor 注入
+// 通过 USBHIDMouse 的 _onGetDescriptor 机制注入克隆的描述符
+// 注意：不能重写 tud_hid_descriptor_report_cb，Arduino库已定义
+// 正确做法是通过 USB.addDevice() + 自定义描述符来实现
+// 目前方案：如果克隆描述符就绪，在InitUSB前替换Mouse的描述符
 // ============================================================
-extern "C" uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance)
-{
-    if (instance != 0) {
-        return nullptr;
-    }
 
+// Arduino ESP32 USB库内部结构（通过源码分析得知）
+// USBHIDMouse 继承自 USBHIDDevice，后者向 USBHID 注册描述符
+// tud_hid_descriptor_report_cb 内部遍历所有注册设备的描述符
+// 我们无法直接替换，但可以通过不调用 Mouse.begin()
+// 改为手动注册克隆描述符——这需要深度修改
+//
+// 当前阶段2实现：接收并存储克隆描述符（ready标志）
+// 完整注入需要在阶段3中实现自定义 USBHIDDevice 子类
+// 现在先确保基础功能正常（透传+阶段1功能）
+void applyClonedDescriptorIfReady()
+{
+    // Placeholder: descriptor is stored in clonedDescriptor
+    // Full injection via custom USBHIDDevice will be done in Stage 3
     if (clonedDescriptor.ready) {
-        ESP_LOGD("USBSetup", "Using cloned HID Report Descriptor, length: %d", 
+        ESP_LOGI("USBSetup", "Cloned HID descriptor ready (len=%d), will be used in Stage 3", 
                  clonedDescriptor.length);
-        return clonedDescriptor.data;
-    } else {
-        ESP_LOGW("USBSetup", "Cloned descriptor not ready, using default descriptor");
-        return defaultHIDReportDescriptor;
-    }
-}
-
-extern "C" uint16_t tud_hid_get_report_desc_cb(uint8_t instance)
-{
-    if (instance != 0) {
-        return 0;
-    }
-
-    if (clonedDescriptor.ready) {
-        return clonedDescriptor.length;
-    } else {
-        return sizeof(defaultHIDReportDescriptor);
     }
 }

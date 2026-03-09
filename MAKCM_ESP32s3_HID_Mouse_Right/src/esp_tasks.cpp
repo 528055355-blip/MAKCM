@@ -1,4 +1,5 @@
 #include "EspUsbHost.h"
+#include "binary_protocol.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"

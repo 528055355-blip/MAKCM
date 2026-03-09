@@ -26,12 +26,7 @@ extern DescriptorConfiguration configuration_descriptor;
 void requestUSBDescriptors();
 void InitUSB();
 
-// ============================================================
-// 阶段2新增：HID Report Descriptor 接收和处理函数
-// ============================================================
+// 阶段2：HID Report Descriptor 接收和处理函数
 bool receiveHIDReportDescriptor();
 void processSerialData();
-
-// TinyUSB 回调函数声明
-extern "C" uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance);
-extern "C" uint16_t tud_hid_get_report_desc_cb(uint8_t instance);
+void applyClonedDescriptorIfReady();
